@@ -383,6 +383,12 @@ export default function AdminDashboard({
   };
 
   const handleUpload = async () => {
+    // Check actor readiness first — if not ready, bail immediately
+    if (!actor) {
+      toast.error("App not ready. Please wait a moment and try again.");
+      return;
+    }
+
     let hasError = false;
     if (!title.trim()) {
       setTitleError("Title is required");
@@ -393,10 +399,6 @@ export default function AdminDashboard({
       hasError = true;
     }
     if (hasError) return;
-    if (!actor) {
-      toast.error("Backend not ready. Please try again.");
-      return;
-    }
 
     try {
       setUploadProgress(0);
@@ -417,10 +419,9 @@ export default function AdminDashboard({
 
       const fileBytes = new Uint8Array(await selectedFile!.arrayBuffer());
       const { hash } = await storageClient.putFile(fileBytes, (pct) => {
-        setUploadProgress(pct);
+        setUploadProgress(Math.min(pct, 99));
       });
 
-      const SENTINEL = "!caf!";
       const blobId = SENTINEL + hash;
 
       await addPdfMutation.mutateAsync({
@@ -430,18 +431,20 @@ export default function AdminDashboard({
         blobId,
       });
 
+      setUploadProgress(100);
       toast.success("PDF uploaded successfully!");
       setTitle("");
       setDescription("");
       setSelectedFile(null);
-      setUploadProgress(null);
+      setTimeout(() => setUploadProgress(null), 500);
       if (fileInputRef.current) fileInputRef.current.value = "";
       setShowForm(false);
     } catch (err) {
+      console.error("Upload error:", err);
       setUploadProgress(null);
-      toast.error(
-        err instanceof Error ? err.message : "Upload failed. Please try again.",
-      );
+      const message =
+        err instanceof Error ? err.message : "Upload failed. Please try again.";
+      toast.error(`Upload failed: ${message}`);
     }
   };
 

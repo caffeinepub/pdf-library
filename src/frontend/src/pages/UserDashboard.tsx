@@ -46,9 +46,17 @@ async function getBlobUrl(blobId: string): Promise<string> {
     ? blobId.substring(SENTINEL.length)
     : blobId;
   const directUrl = await storageClient.getDirectURL(hash);
-  // Use Google Docs viewer to reliably render PDFs inline in any browser
-  // without download prompts or CORS/Content-Type issues.
-  return `https://docs.google.com/viewer?url=${encodeURIComponent(directUrl)}&embedded=true`;
+  // Fetch the raw bytes and re-wrap as application/pdf so the browser
+  // renders it inline regardless of the stored Content-Type.
+  const response = await fetch(directUrl);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch PDF: ${response.status} ${response.statusText}`,
+    );
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  const blob = new Blob([arrayBuffer], { type: "application/pdf" });
+  return URL.createObjectURL(blob);
 }
 
 function formatDate(ts: bigint): string {
@@ -119,7 +127,10 @@ function PdfViewer({
 
   useEffect(() => {
     if (!open || !pdf) {
-      setUrl(null);
+      setUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
       setUrlError(null);
       return;
     }
@@ -131,6 +142,8 @@ function PdfViewer({
         if (!cancelled) {
           setUrl(resolvedUrl);
           setLoadingUrl(false);
+        } else {
+          URL.revokeObjectURL(resolvedUrl);
         }
       })
       .catch((err) => {
@@ -208,12 +221,26 @@ function PdfViewer({
             </div>
           )}
           {url && !loadingUrl && !urlError && (
-            <iframe
-              src={url}
-              title={pdf?.title ?? "PDF"}
-              className="w-full h-full border-0 rounded-b-lg"
-              allowFullScreen
-            />
+            <object
+              data={url}
+              type="application/pdf"
+              className="w-full h-full rounded-b-lg"
+            >
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-card">
+                <p className="text-muted-foreground text-sm text-center px-6">
+                  Your browser cannot display this PDF inline.
+                </p>
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open PDF
+                </a>
+              </div>
+            </object>
           )}
         </div>
       </DialogContent>

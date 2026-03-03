@@ -63,19 +63,9 @@ async function getBlobUrl(blobId: string): Promise<string> {
     ? blobId.substring(SENTINEL.length)
     : blobId;
   const directUrl = await storageClient.getDirectURL(hash);
-
-  // Fetch and re-create as an application/pdf Blob so the browser renders
-  // it inline instead of triggering a download (StorageClient stores files
-  // with Content-Type: application/octet-stream which causes downloads).
-  const response = await fetch(directUrl);
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch PDF: ${response.status} ${response.statusText}`,
-    );
-  }
-  const arrayBuffer = await response.arrayBuffer();
-  const blob = new Blob([arrayBuffer], { type: "application/pdf" });
-  return URL.createObjectURL(blob);
+  // Use Google Docs viewer to reliably render PDFs inline in any browser
+  // without download prompts or CORS/Content-Type issues.
+  return `https://docs.google.com/viewer?url=${encodeURIComponent(directUrl)}&embedded=true`;
 }
 
 function AdminPdfViewer({
@@ -93,26 +83,18 @@ function AdminPdfViewer({
 
   useEffect(() => {
     if (!open || !pdf) {
-      setUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
+      setUrl(null);
       setUrlError(null);
       return;
     }
     let cancelled = false;
-    let objectUrl: string | null = null;
     setLoadingUrl(true);
     setUrlError(null);
     getBlobUrl(pdf.blobId)
       .then((resolvedUrl) => {
         if (!cancelled) {
-          objectUrl = resolvedUrl;
           setUrl(resolvedUrl);
           setLoadingUrl(false);
-        } else {
-          // Component unmounted before we could use it — revoke immediately
-          URL.revokeObjectURL(resolvedUrl);
         }
       })
       .catch((err) => {
@@ -125,7 +107,6 @@ function AdminPdfViewer({
       });
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [open, pdf]);
 
